@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
-use std::process::{Command as StdCommand};
+use std::process::Command as StdCommand;
 use std::sync::mpsc;
 use std::sync::Mutex;
 use tauri::Manager;
@@ -25,166 +25,89 @@ fn find_mpv() -> Option<String> {
         })
 }
 
-fn send_mpv_command_timeout(json: &str, _timeout_ms: u64) -> Result<String, String> {
-    let start = std::time::Instant::now();
-    loop {
-        match UnixStream::connect(MPV_SOCKET) {
-            Ok(mut socket) => {
-                socket.write_all(json.as_bytes())
-                    .map_err(|e| format!("Failed to send command to mpv: {}", e))?;
-                // Don't wait for response — mpv processes commands asynchronously
-                return Ok(String::new());
-            }
-            Err(_) if start.elapsed().as_millis() < 3000 => {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-                continue;
-            }
-            Err(e) => return Err(format!("Cannot connect to mpv: {}. Ensure mpv is installed (brew install mpv) and the app has been restarted.", e)),
-        }
-    }
+/// Send a JSON command to mpv via IPC socket. Fire-and-forget — no response.
+fn mpv_send(json: &str) -> Result<(), String> {
+    let mut socket = UnixStream::connect(MPV_SOCKET)
+        .map_err(|e| format!("Cannot connect to mpv: {}", e))?;
+    socket.write_all(json.as_bytes())
+        .map_err(|e| format!("Failed to send: {}", e))?;
+    Ok(())
 }
 
-fn send_mpv_command(json: &str) -> Result<String, String> {
-    send_mpv_command_timeout(json, 3000)
-}
-
-fn mpv_get_property_raw(name: &str) -> Result<String, String> {
-    let json = serde_json::json!({"command": ["get_property", name]}).to_string();
-    let start = std::time::Instant::now();
+/// Send a command and read the JSON response. Retries on EAGAIN.
+fn mpv_send_and_read(json: &str) -> Result<String, String> {
+    let mut socket = UnixStream::connect(MPV_SOCKET)
+        .map_err(|e| format!("Cannot connect to mpv: {}", e))?;
+    socket.write_all(json.as_bytes())
+        .map_err(|e| format!("Failed to send: {}", e))?;
+    // Give mpv a moment to respond, then try reading
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let mut buf = [0u8; 8192];
+    let mut total = 0usize;
+    socket.set_read_timeout(Some(std::time::Duration::from_millis(1500)))
+        .ok();
     loop {
-        match UnixStream::connect(MPV_SOCKET) {
-            Ok(mut socket) => {
-                socket.set_read_timeout(Some(std::time::Duration::from_millis(2000)))
-                    .map_err(|e| format!("Failed to set socket timeout: {}", e))?;
-                socket.write_all(json.as_bytes())
-                    .map_err(|e| format!("Failed to send command to mpv: {}", e))?;
-                // Read with retry for EAGAIN
-                let mut buf = [0u8; 4096];
-                let mut total = 0usize;
-                loop {
-                    match socket.read(&mut buf[total..]) {
-                        Ok(n) if n == 0 => break, // EOF
-                        Ok(n) => {
-                            total += n;
-                            // Check if we have a complete JSON response
-                            if buf[..total].iter().any(|&b| b == b'\n') {
-                                break;
-                            }
-                            continue;
-                        }
-                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
-                            || e.kind() == std::io::ErrorKind::Interrupted => {
-                            std::thread::sleep(std::time::Duration::from_millis(50));
-                            continue;
-                        }
-                        Err(e) => return Err(format!("Failed to read mpv response: {}", e)),
-                    }
-                }
-                return Ok(String::from_utf8_lossy(&buf[..total]).trim().to_string());
-            }
-            Err(_) if start.elapsed().as_millis() < 3000 => {
-                std::thread::sleep(std::time::Duration::from_millis(100));
+        match socket.read(&mut buf[total..]) {
+            Ok(n) if n == 0 => break,
+            Ok(n) => { total += n; break; }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
+                || e.kind() == std::io::ErrorKind::Interrupted => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
                 continue;
             }
-            Err(e) => return Err(format!("Cannot connect to mpv: {}", e)),
+            Err(e) => return Err(format!("Read error: {}", e)),
         }
     }
+    Ok(String::from_utf8_lossy(&buf[..total]).trim().to_string())
 }
 
 #[tauri::command]
 fn start_mpv() -> Result<(), String> {
     let mpv = find_mpv().ok_or_else(|| "mpv not found. Install with: brew install mpv".to_string())?;
-
-    // Clean up stale socket
     let _ = std::fs::remove_file(MPV_SOCKET);
-
-    // Check if mpv is already running
     if UnixStream::connect(MPV_SOCKET).is_ok() {
         return Ok(());
     }
-
-    // First verify mpv works at all
-    let version_out = StdCommand::new(&mpv).arg("--version").output()
-        .map_err(|e| format!("Cannot run mpv binary at '{}': {}", mpv, e))?;
-    if !version_out.status.success() {
-        let err = String::from_utf8_lossy(&version_out.stderr);
-        return Err(format!("mpv binary at '{}' failed: {}", mpv, err));
-    }
-
-    // Start mpv with minimal flags
-    // Note: mpv v0.41+ requires --flag=value syntax, not --flag value
     let socket_arg = format!("--input-ipc-server={}", MPV_SOCKET);
-    let mut child = StdCommand::new(&mpv)
+    StdCommand::new(&mpv)
         .arg("--idle")
         .arg("--keep-open=yes")
         .arg("--hwdec=yes")
         .arg(&socket_arg)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("Failed to start mpv: {}", e))?;
-
-    // Wait for socket to be ready
-    for _ in 0..300 {
-        if UnixStream::connect(MPV_SOCKET).is_ok() {
-            return Ok(());
-        }
+    for _ in 0..100 {
+        if UnixStream::connect(MPV_SOCKET).is_ok() { return Ok(()); }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-
-    // mpv didn't create socket — capture output
-    use std::io::Read;
-    let mut output = String::new();
-    let mut err_output = String::new();
-    if child.try_wait().ok().flatten().is_some() {
-        let _ = child.stdout.take().and_then(|mut p| p.read_to_string(&mut output).ok());
-        let _ = child.stderr.take().and_then(|mut p| p.read_to_string(&mut err_output).ok());
-    } else {
-        // mpv still running, kill it
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-
-    let details = if !output.trim().is_empty() { format!("\nstdout: {}", output.trim()) }
-    else if !err_output.trim().is_empty() { format!("\nstderr: {}", err_output.trim()) }
-    else { String::new() };
-
-    Err(format!(
-        "mpv failed to start. Socket not created after 15s.{}",
-        details
-    ))
+    Err("mpv failed to start. Socket not created.".into())
 }
 
 #[tauri::command]
 fn mpv_loadfile(url: String) -> Result<(), String> {
-    let json = serde_json::json!({"command": ["loadfile", url]});
-    send_mpv_command(&json.to_string())?;
-    Ok(())
+    let json = serde_json::json!({"command": ["loadfile", url]}).to_string();
+    mpv_send(&json)
 }
 
 #[tauri::command]
 fn mpv_set_property(name: String, value: String) -> Result<(), String> {
-    let json = serde_json::json!({"command": ["set_property", name, value]});
-    send_mpv_command(&json.to_string())?;
-    Ok(())
+    let json = serde_json::json!({"command": ["set_property", name, value]}).to_string();
+    mpv_send(&json)
 }
 
 #[tauri::command]
 fn mpv_get_property(name: String) -> Result<String, String> {
-    let resp = mpv_get_property_raw(&name)?;
-    Ok(resp)
+    let json = serde_json::json!({"command": ["get_property", name]}).to_string();
+    mpv_send_and_read(&json)
 }
 
 #[tauri::command]
 fn mpv_stop() -> Result<(), String> {
-    // Try graceful shutdown via IPC first
-    let _ = send_mpv_command(r#"{"command":["quit"]}"#);
-    // Clean up socket file
+    let _ = mpv_send(r#"{"command":["quit"]}"#);
     std::thread::sleep(std::time::Duration::from_millis(200));
     let _ = std::fs::remove_file(MPV_SOCKET);
     Ok(())
-}
-
+} 
 fn sv(s: impl Into<String>) -> serde_json::Value {
     serde_json::Value::String(s.into())
 }
