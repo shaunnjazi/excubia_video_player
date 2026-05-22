@@ -16,6 +16,12 @@ export default function App() {
   const [currentPath, setCurrentPath] = useState('')
   const [showPlaylist, setShowPlaylist] = useState(false)
 
+  const getNextVideoName = (): string | undefined => {
+    if (!currentVideo) return undefined
+    const next = nextVideo(currentVideo.path)
+    return next?.name
+  }
+
   const handleLogout = async () => {
     setAccessToken(null)
     setCurrentVideo(null)
@@ -103,6 +109,7 @@ export default function App() {
               onStop={handleStop}
               onTogglePlaylist={() => setShowPlaylist(p => !p)}
               playlistCount={getPlaylist().length}
+              nextVideoName={getNextVideoName()}
             />
           ) : (
             <div style={{ padding: '8px 16px', borderTop: '1px solid #30363D', fontSize: '12px', color: '#6E7681', display: 'flex', alignItems: 'center', gap: '8px', background: '#161B22' }}>

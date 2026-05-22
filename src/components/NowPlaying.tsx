@@ -7,9 +7,10 @@ interface NowPlayingProps {
   onStop: () => void
   onTogglePlaylist?: () => void
   playlistCount?: number
+  nextVideoName?: string
 }
 
-export default function NowPlaying({ videoName, onNext, onPrev, onStop, onTogglePlaylist, playlistCount }: NowPlayingProps) {
+export default function NowPlaying({ videoName, onNext, onPrev, onStop, onTogglePlaylist, playlistCount, nextVideoName }: NowPlayingProps) {
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [paused, setPaused] = useState(false)
@@ -59,6 +60,12 @@ export default function NowPlaying({ videoName, onNext, onPrev, onStop, onToggle
 
   // Keyboard shortcuts
   useEffect(() => {
+    const sendOsd = async (text: string) => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core')
+        await invoke('mpv_command', { cmd: ['show-text', text, '3000'] })
+      } catch {}
+    }
     const handler = (e: KeyboardEvent) => {
       switch (e.key) {
         case ' ':
@@ -66,6 +73,14 @@ export default function NowPlaying({ videoName, onNext, onPrev, onStop, onToggle
           e.preventDefault(); togglePlay(); break
         case 'm':
           toggleMute(); break
+        case 'n':
+        case 'N':
+          if (onNext) { onNext(); sendOsd(nextVideoName ? `Next: ${nextVideoName}` : 'Next') }
+          break
+        case 'b':
+        case 'B':
+          if (onPrev) { onPrev(); sendOsd('Previous') }
+          break
         case 'ArrowLeft':
           seekCmd(Math.max(0, time - 10)); break
         case 'ArrowRight':
@@ -78,7 +93,7 @@ export default function NowPlaying({ videoName, onNext, onPrev, onStop, onToggle
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [time, duration, volume])
+  }, [time, duration, volume, onNext, onPrev, nextVideoName])
 
   const seekCmd = async (t: number) => {
     try {
