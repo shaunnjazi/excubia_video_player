@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { listFolder, getTemporaryLink, DropboxEntry, isVideoFile, isSubtitleFile, sortEntries, SortField, SortDir } from '../lib/dropbox'
+import { listFolder, DropboxEntry, isVideoFile, isSubtitleFile, sortEntries, SortField, SortDir } from '../lib/dropbox'
 
 interface BrowserProps {
   accessToken: string
@@ -94,11 +94,8 @@ export default function Browser({ accessToken, view, onPlayVideo, onNavigate, cu
     setPlayError(null)
     setPlayingName(entry.name)
     try {
-      const link = await getTemporaryLink(accessToken, entry.path_lower)
-      const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('start_mpv', { url: link })
-      addRecentVideo(entry.path_lower, entry.name)
       onPlayVideo(entry.path_lower, entry.name)
+      addRecentVideo(entry.path_lower, entry.name)
     } catch (err: any) {
       setPlayError(err.toString())
     } finally {

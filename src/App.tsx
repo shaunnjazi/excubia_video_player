@@ -6,7 +6,6 @@ import PlaylistSidebar from './components/PlaylistSidebar'
 import NowPlaying from './components/NowPlaying'
 import { ToastContainer } from './components/ToastContainer'
 import { ToastProvider } from './contexts/ToastContext'
-import { getTemporaryLink } from './lib/dropbox'
 import { addToPlaylist, nextVideo, getPlaylist } from './services/playlist.service'
 
 export default function App() {
@@ -15,12 +14,6 @@ export default function App() {
   const [view, setView] = useState<'browse' | 'recent'>('browse')
   const [currentPath, setCurrentPath] = useState('')
   const [showPlaylist, setShowPlaylist] = useState(false)
-
-  const getNextVideoName = (): string | undefined => {
-    if (!currentVideo) return undefined
-    const next = nextVideo(currentVideo.path)
-    return next?.name
-  }
 
   const handleLogout = async () => {
     setAccessToken(null)
@@ -32,21 +25,35 @@ export default function App() {
     } catch {}
   }
 
-  const playUrl = useCallback(async (path: string, name: string) => {
+  const handlePlayVideo = useCallback(async (path: string, name: string) => {
     try {
-      const link = await getTemporaryLink(accessToken!, path)
+      const { getTemporaryLink, listFolder } = await import('./lib/dropbox')
       const { invoke } = await import('@tauri-apps/api/core')
+      const link = await getTemporaryLink(accessToken!, path)
       await invoke('start_mpv', { url: link })
+      addToPlaylist({ path, name, added: Date.now() })
       setCurrentVideo({ path, name })
+      // Auto-populate playlist with all videos in the same folder
+      const folder = path.substring(0, path.lastIndexOf('/'))
+      try {
+        const result = await listFolder(accessToken!, folder)
+        const videos = result.entries
+          .filter(e => e.tag === 'file' && e.name.match(/\.(mp4|mkv|avi|mov|webm|m4v|mpg|mpeg|wmv|flv|ts)$/i))
+          .map(e => ({ path: e.path_lower, name: e.name, size: e.size, added: Date.now() }))
+        for (const v of videos) {
+          if (v.path !== path) addToPlaylist(v)
+        }
+      } catch {}
     } catch (err: any) {
       console.error('Play failed:', err)
     }
   }, [accessToken])
 
-  const handlePlayVideo = useCallback(async (path: string, name: string) => {
-    addToPlaylist({ path, name, added: Date.now() })
-    await playUrl(path, name)
-  }, [playUrl])
+  const getNextVideoName = (): string | undefined => {
+    if (!currentVideo) return undefined
+    const next = nextVideo(currentVideo.path)
+    return next?.name
+  }
 
   const handlePlayNext = useCallback(async () => {
     if (!currentVideo) return
