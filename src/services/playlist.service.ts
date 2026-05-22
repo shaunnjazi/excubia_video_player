@@ -84,3 +84,12 @@ export function nextVideo(currentPath: string): PlaylistItem | null {
   if (mode === 'all' && list.length > 0) return list[0]
   return null
 }
+
+export function previousVideo(currentPath: string): PlaylistItem | null {
+  const list = getPlaylist()
+  if (list.length === 0) return null
+  const idx = list.findIndex(p => p.path === currentPath)
+  if (idx > 0) return list[idx - 1]
+  if (getRepeat() === 'all') return list[list.length - 1]
+  return null
+}

@@ -1,13 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import AuthGate from './components/AuthGate'
 import Sidebar from './components/Sidebar'
 import Browser from './components/Browser'
 import PlaylistSidebar from './components/PlaylistSidebar'
+import NowPlaying from './components/NowPlaying'
 import { ToastContainer } from './components/ToastContainer'
 import { ToastProvider } from './contexts/ToastContext'
 import { getTemporaryLink } from './lib/dropbox'
-import { addToPlaylist, addMultipleToPlaylist, nextVideo } from './services/playlist.service'
-import { listFolder } from './lib/dropbox'
+import { addToPlaylist, nextVideo, getPlaylist } from './services/playlist.service'
 
 export default function App() {
   const [accessToken, setAccessToken] = useState<string | null>(null)
@@ -22,50 +22,60 @@ export default function App() {
     try {
       const { invoke } = await import('@tauri-apps/api/core')
       await invoke('clear_stored_token')
+      await invoke('mpv_stop').catch(() => {})
     } catch {}
   }
 
-  const playUrl = async (path: string, name: string) => {
+  const playUrl = useCallback(async (path: string, name: string) => {
     try {
       const link = await getTemporaryLink(accessToken!, path)
       const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('launch_mpv', { url: link })
+      await invoke('start_mpv').catch(() => {})
+      await invoke('mpv_loadfile', { url: link })
       setCurrentVideo({ path, name })
     } catch (err: any) {
       console.error('Play failed:', err)
     }
-  }
+  }, [accessToken])
 
-  const handlePlayVideo = async (path: string, name: string) => {
-    // Add to playlist and play
+  const handlePlayVideo = useCallback(async (path: string, name: string) => {
     addToPlaylist({ path, name, added: Date.now() })
     await playUrl(path, name)
-  }
+  }, [playUrl])
 
-  const handlePlayNext = async () => {
+  const handlePlayNext = useCallback(async () => {
     if (!currentVideo) return
     const next = nextVideo(currentVideo.path)
     if (next) await handlePlayVideo(next.path, next.name)
-  }
+  }, [currentVideo, handlePlayVideo])
 
-  const handleFolderPlay = async (folderPath: string, firstVideoPath: string, firstVideoName: string) => {
-    // Load folder and add all videos to playlist
-    try {
-      const result = await listFolder(accessToken!, folderPath)
-      const videos = result.entries
-        .filter(e => e.tag === 'file' && e.name.match(/\.(mp4|mkv|avi|mov|webm|m4v|mpg|mpeg|wmv|flv|ts)$/i))
-        .map(e => ({ path: e.path_lower, name: e.name, size: e.size, added: Date.now() }))
-      addMultipleToPlaylist(videos)
-      await playUrl(firstVideoPath, firstVideoName)
-    } catch {}
-  }
-
-  useEffect(() => {
-    if (view === 'browse' && currentPath) {
-      // When navigating to a folder, populate playlist
-      handleFolderPlay(currentPath, '', '')
+  const handlePlayPrev = useCallback(async () => {
+    if (!currentVideo) return
+    const list = getPlaylist()
+    const idx = list.findIndex(p => p.path === currentVideo.path)
+    if (idx > 0) {
+      const prev = list[idx - 1]
+      await handlePlayVideo(prev.path, prev.name)
     }
-  }, [view])
+  }, [currentVideo, handlePlayVideo])
+
+  const handleStop = useCallback(async () => {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('mpv_loadfile', { url: '' }).catch(() => {})
+    } catch {}
+    setCurrentVideo(null)
+  }, [])
+
+  // Pre-start mpv on mount so first load is instant
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core')
+        await invoke('start_mpv')
+      } catch {}
+    })()
+  }, [])
 
   if (!accessToken) return (
     <ToastProvider>
@@ -77,50 +87,25 @@ export default function App() {
   return (
     <ToastProvider>
       <div style={{ display: 'flex', height: '100vh', background: '#0D1117' }}>
-        <Sidebar
-          view={view}
-          onViewChange={setView}
-          onLogout={handleLogout}
-        />
+        <Sidebar view={view} onViewChange={setView} onLogout={handleLogout} />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <Browser
             accessToken={accessToken}
             view={view}
             currentPath={currentPath}
-            onNavigate={(path) => {
-              setCurrentPath(path)
-              setView('browse')
-            }}
+            onNavigate={(path) => { setCurrentPath(path); setView('browse') }}
             onPlayVideo={handlePlayVideo}
           />
-          {currentVideo && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 16px',
-              background: '#161B22', borderTop: '1px solid #30363D', flexShrink: 0, }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="#2F81F7">
-                <polygon points="5 3 19 12 5 21 5 3" />
-              </svg>
-              <span style={{ fontSize: '13px', color: '#E6EDF3', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {currentVideo.name}
-              </span>
-              <button onClick={handlePlayNext} title="Next in playlist"
-                style={{ background: 'none', border: 'none', color: '#8B949E', cursor: 'pointer', padding: '4px', display: 'flex' }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M19 20L9 12l10-8v16zM5 19V5h2v14H5z" />
-                </svg>
-              </button>
-              <button onClick={() => setShowPlaylist(p => !p)} title="Playlist"
-                style={{ background: showPlaylist ? '#2F81F722' : 'none', border: `1px solid ${showPlaylist ? '#2F81F7' : 'transparent'}`, color: '#8B949E', cursor: 'pointer', padding: '4px', borderRadius: '4px', display: 'flex' }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />
-                  <line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
-                </svg>
-              </button>
-              <button onClick={() => setCurrentVideo(null)}
-                style={{ background: 'none', border: 'none', color: '#8B949E', cursor: 'pointer', padding: '4px', display: 'flex' }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
+          {currentVideo ? (
+            <NowPlaying
+              videoName={currentVideo.name}
+              onNext={handlePlayNext}
+              onPrev={handlePlayPrev}
+              onStop={handleStop}
+            />
+          ) : (
+            <div style={{ padding: '8px 16px', borderTop: '1px solid #30363D', fontSize: '12px', color: '#6E7681', textAlign: 'center', background: '#161B22' }}>
+              {getPlaylist().length > 0 ? `${getPlaylist().length} videos in playlist — click one to play` : 'Select a video to play'}
             </div>
           )}
         </div>
