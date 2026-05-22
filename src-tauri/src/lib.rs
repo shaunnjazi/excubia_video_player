@@ -25,18 +25,15 @@ fn find_mpv() -> Option<String> {
         })
 }
 
-fn send_mpv_command_timeout(json: &str, timeout_ms: u64) -> Result<String, String> {
+fn send_mpv_command_timeout(json: &str, _timeout_ms: u64) -> Result<String, String> {
     let start = std::time::Instant::now();
     loop {
         match UnixStream::connect(MPV_SOCKET) {
             Ok(mut socket) => {
-                socket.set_read_timeout(Some(std::time::Duration::from_millis(timeout_ms)))
-                    .map_err(|e| format!("Failed to set socket timeout: {}", e))?;
                 socket.write_all(json.as_bytes())
                     .map_err(|e| format!("Failed to send command to mpv: {}", e))?;
-                let mut buf = [0u8; 4096];
-                let n = socket.read(&mut buf).map_err(|e| format!("Failed to read mpv response: {}", e))?;
-                return Ok(String::from_utf8_lossy(&buf[..n]).trim().to_string());
+                // Don't wait for response — mpv processes commands asynchronously
+                return Ok(String::new());
             }
             Err(_) if start.elapsed().as_millis() < 3000 => {
                 std::thread::sleep(std::time::Duration::from_millis(100));
@@ -49,6 +46,49 @@ fn send_mpv_command_timeout(json: &str, timeout_ms: u64) -> Result<String, Strin
 
 fn send_mpv_command(json: &str) -> Result<String, String> {
     send_mpv_command_timeout(json, 3000)
+}
+
+fn mpv_get_property_raw(name: &str) -> Result<String, String> {
+    let json = serde_json::json!({"command": ["get_property", name]}).to_string();
+    let start = std::time::Instant::now();
+    loop {
+        match UnixStream::connect(MPV_SOCKET) {
+            Ok(mut socket) => {
+                socket.set_read_timeout(Some(std::time::Duration::from_millis(2000)))
+                    .map_err(|e| format!("Failed to set socket timeout: {}", e))?;
+                socket.write_all(json.as_bytes())
+                    .map_err(|e| format!("Failed to send command to mpv: {}", e))?;
+                // Read with retry for EAGAIN
+                let mut buf = [0u8; 4096];
+                let mut total = 0usize;
+                loop {
+                    match socket.read(&mut buf[total..]) {
+                        Ok(n) if n == 0 => break, // EOF
+                        Ok(n) => {
+                            total += n;
+                            // Check if we have a complete JSON response
+                            if buf[..total].iter().any(|&b| b == b'\n') {
+                                break;
+                            }
+                            continue;
+                        }
+                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
+                            || e.kind() == std::io::ErrorKind::Interrupted => {
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                            continue;
+                        }
+                        Err(e) => return Err(format!("Failed to read mpv response: {}", e)),
+                    }
+                }
+                return Ok(String::from_utf8_lossy(&buf[..total]).trim().to_string());
+            }
+            Err(_) if start.elapsed().as_millis() < 3000 => {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                continue;
+            }
+            Err(e) => return Err(format!("Cannot connect to mpv: {}", e)),
+        }
+    }
 }
 
 #[tauri::command]
@@ -131,8 +171,7 @@ fn mpv_set_property(name: String, value: String) -> Result<(), String> {
 
 #[tauri::command]
 fn mpv_get_property(name: String) -> Result<String, String> {
-    let json = serde_json::json!({"command": ["get_property", name]});
-    let resp = send_mpv_command(&json.to_string())?;
+    let resp = mpv_get_property_raw(&name)?;
     Ok(resp)
 }
 
