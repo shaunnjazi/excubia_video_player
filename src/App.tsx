@@ -141,7 +141,7 @@ export default function App() {
             currentVideoPath={currentVideo?.path || null}
             onPlayVideo={handlePlayVideo}
             onClose={() => setShowPlaylist(false)}
-            width={280}
+            initialWidth={280}
           />
         )}
       </div>

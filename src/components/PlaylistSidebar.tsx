@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { getPlaylist, removeFromPlaylist, clearPlaylist, reorderPlaylist,
   getShuffle, setShuffle, getRepeat, setRepeat, type PlaylistItem, type RepeatMode } from '../services/playlist.service'
 
@@ -6,15 +6,17 @@ interface PlaylistSidebarProps {
   currentVideoPath: string | null
   onPlayVideo: (path: string, name: string) => void
   onClose: () => void
-  width: number
+  initialWidth: number
 }
 
-export default function PlaylistSidebar({ currentVideoPath, onPlayVideo, onClose, width }: PlaylistSidebarProps) {
+export default function PlaylistSidebar({ currentVideoPath, onPlayVideo, onClose, initialWidth }: PlaylistSidebarProps) {
   const [items, setItems] = useState<PlaylistItem[]>([])
   const [shuffle, setShuffleState] = useState(getShuffle)
   const [repeat, setRepeatState] = useState<RepeatMode>(getRepeat)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
+  const [width, setWidth] = useState(initialWidth)
+  const resizing = useRef(false)
 
   const refresh = useCallback(() => {
     setItems(getPlaylist())
@@ -51,11 +53,29 @@ export default function PlaylistSidebar({ currentVideoPath, onPlayVideo, onClose
   }
 
   return (
-    <div style={{
-      width, background: '#161B22', borderLeft: '1px solid #30363D',
-      display: 'flex', flexDirection: 'column', flexShrink: 0,
-    }}>
-      {/* Header */}
+    <div style={{ width, background: '#161B22', borderLeft: '1px solid #30363D', display: 'flex', flexShrink: 0, position: 'relative' }}>
+      {/* Resize handle */}
+      <div
+        onMouseDown={e => {
+          resizing.current = true
+          const startX = e.clientX
+          const startW = width
+          const onMouseMove = (ev: MouseEvent) => {
+            const newW = Math.max(180, Math.min(600, startW + startX - ev.clientX))
+            setWidth(newW)
+          }
+          const onMouseUp = () => {
+            resizing.current = false
+            document.removeEventListener('mousemove', onMouseMove)
+            document.removeEventListener('mouseup', onMouseUp)
+          }
+          document.addEventListener('mousemove', onMouseMove)
+          document.addEventListener('mouseup', onMouseUp)
+        }}
+        style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '4px', cursor: 'col-resize', zIndex: 10 }}
+      />
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+        {/* Header */}
       <div style={{ padding: '12px', borderBottom: '1px solid #30363D' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
           <span style={{ fontSize: '13px', fontWeight: 600, color: '#E6EDF3' }}>Playlist ({items.length})</span>
@@ -133,6 +153,7 @@ export default function PlaylistSidebar({ currentVideoPath, onPlayVideo, onClose
             </div>
           )
         })}
+      </div>
       </div>
     </div>
   )

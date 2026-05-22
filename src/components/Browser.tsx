@@ -51,6 +51,7 @@ export default function Browser({ accessToken, view, onPlayVideo, onAddToPlaylis
   const [searchQuery, setSearchQuery] = useState('')
   const [playingName, setPlayingName] = useState<string | null>(null)
   const [playError, setPlayError] = useState<string | null>(null)
+  const [clickedFile, setClickedFile] = useState<string | null>(null)
   const [sortField, setSortField] = useState<SortField>('name')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
 
@@ -100,7 +101,8 @@ export default function Browser({ accessToken, view, onPlayVideo, onAddToPlaylis
     } catch (err: any) {
       setPlayError(err.toString())
     } finally {
-      setPlayingName(null)
+      // Keep spinner for at least 1.5s so user sees feedback
+      setTimeout(() => setPlayingName(null), 1500)
     }
   }
 
@@ -237,10 +239,16 @@ export default function Browser({ accessToken, view, onPlayVideo, onAddToPlaylis
             const isVid = isVideoFile(entry.name)
             const isLoading = playingName === entry.name
             return (
-              <button key={entry.path_lower} onClick={() => entry.tag === 'folder' ? loadFolder(entry.path_lower) : handlePlay(entry)}
+              <button key={entry.path_lower} onClick={() => { 
+                setClickedFile(entry.path_lower)
+                setTimeout(() => setClickedFile(null), 300)
+                if (entry.tag === 'folder') loadFolder(entry.path_lower)
+                else handlePlay(entry)
+              }}
                 style={{
                   display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '8px 12px',
-                  background: isLoading ? '#2F81F722' : 'none',
+                  background: isLoading ? '#2F81F722' : clickedFile === entry.path_lower ? '#2F81F744' : 'none',
+                  animation: clickedFile === entry.path_lower ? 'flash 0.3s ease' : 'none',
                   border: 'none', borderBottom: '1px solid #21262D',
                   color: isSub ? '#8B949E' : '#E6EDF3',
                   cursor: entry.tag === 'folder' || isVid ? 'pointer' : 'default',
@@ -301,7 +309,7 @@ export default function Browser({ accessToken, view, onPlayVideo, onAddToPlaylis
             )}
           </div>
         )}
-      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } } @keyframes flash { 0% { background: #2F81F722 } 100% { background: transparent } }`}</style>
     </div>
   )
 }
