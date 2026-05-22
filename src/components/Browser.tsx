@@ -93,15 +93,8 @@ export default function Browser({ accessToken, view, onPlayVideo, onAddToPlaylis
 
   const handlePlay = async (entry: DropboxEntry) => {
     if (isSubtitleFile(entry.name)) {
-      // Load subtitle into running mpv
-      const { invoke } = await import('@tauri-apps/api/core')
-      const { getTemporaryLink } = await import('../lib/dropbox')
-      try {
-        const link = await getTemporaryLink(accessToken, entry.path_lower)
-        await invoke('mpv_command', { cmd: ['sub-add', link, 'select'] })
-      } catch (err: any) {
-        setPlayError(err.toString())
-      }
+      // Subtitle loading not available without IPC — inform user
+      setPlayError('Subtitles must be loaded through mpv (drag file into mpv window)')
       return
     }
     if (!isVideoFile(entry.name)) return

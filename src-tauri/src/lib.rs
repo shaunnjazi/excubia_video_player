@@ -2,114 +2,46 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::io::{Read, Write};
-use std::os::unix::net::UnixStream;
 use std::process::Command as StdCommand;
 use std::sync::mpsc;
 use tauri::Emitter;
 use tauri::Manager;
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Shortcut, ShortcutState};
 use tiny_http;
 
 mod dropbox;
-
-const MPV_SOCKET: &str = "/tmp/excubia-mpv.socket";
 
 fn find_mpv() -> Option<String> {
     let paths = ["/opt/homebrew/bin/mpv", "/usr/local/bin/mpv", "/usr/bin/mpv"];
     paths.iter().find(|p| std::path::Path::new(p).exists()).map(|s| s.to_string())
         .or_else(|| {
-            // Fallback: try PATH
             let output = StdCommand::new("which").arg("mpv").output().ok()?;
             let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !path.is_empty() && std::path::Path::new(&path).exists() { Some(path) } else { None }
         })
 }
 
-/// Send a JSON command to mpv via IPC socket. Fire-and-forget — no response.
-fn mpv_send(json: &str) -> Result<(), String> {
-    let mut socket = UnixStream::connect(MPV_SOCKET)
-        .map_err(|e| format!("Cannot connect to mpv: {}", e))?;
-    socket.write_all(json.as_bytes())
-        .map_err(|e| format!("Failed to send: {}", e))?;
-    Ok(())
-}
-
-/// Send a command and read the JSON response. Returns immediately on error.
-fn mpv_send_and_read(json: &str) -> Result<String, String> {
-    let mut socket = UnixStream::connect(MPV_SOCKET)
-        .map_err(|e| format!("Cannot connect to mpv: {}", e))?;
-    socket.write_all(json.as_bytes())
-        .map_err(|e| format!("Failed to send: {}", e))?;
-    // Short timeout — don't block the UI if mpv is unresponsive
-    socket.set_read_timeout(Some(std::time::Duration::from_millis(200)))
-        .ok();
-    let mut buf = [0u8; 512];
-    match socket.read(&mut buf) {
-        Ok(n) => Ok(String::from_utf8_lossy(&buf[..n]).trim().to_string()),
-        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
-            || e.kind() == std::io::ErrorKind::Interrupted => Ok(String::new()),
-        Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => Ok(String::new()),
-        Err(e) => Err(format!("Read error: {}", e)),
-    }
-}
-
 #[tauri::command]
-fn start_mpv(url: String) -> Result<(), String> {
+fn play_video(url: String) -> Result<(), String> {
     let mpv = find_mpv().ok_or_else(|| "mpv not found. Install with: brew install mpv".to_string())?;
-    // Kill previous instance
-    let _ = mpv_send(r#"{"command":["quit"]}"#);
-    std::thread::sleep(std::time::Duration::from_millis(100));
-    let _ = std::fs::remove_file(MPV_SOCKET);
-    // Launch mpv with the URL + IPC socket for status
-    // Customize window: hide mpv's OSD/OSC, set title, minimal border
-    let socket_arg = format!("--input-ipc-server={}", MPV_SOCKET);
+    // Kill any existing mpv process
+    let _ = StdCommand::new("pkill").arg("-x").arg("mpv").output();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    // Launch mpv with the URL — no IPC, no custom flags
     StdCommand::new(&mpv)
         .arg("--keep-open=yes")
-        .arg(&socket_arg)
         .arg(&url)
         .spawn()
         .map_err(|e| format!("Failed to launch mpv: {}", e))?;
-    // Bring mpv window to front
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    // Bring mpv to front using the 'open' command with the process
+    std::thread::sleep(std::time::Duration::from_millis(300));
     let _ = StdCommand::new("osascript")
         .arg("-e")
-        .arg(r#"tell application "mpv" to activate"#)
+        .arg(r#"tell application "System Events" to set frontmost of first process whose name contains "mpv" to true"#)
         .output();
     Ok(())
 }
 
-#[tauri::command]
-fn mpv_loadfile(url: String) -> Result<(), String> {
-    let json = serde_json::json!({"command": ["loadfile", url]}).to_string();
-    mpv_send(&json)
-}
-
-#[tauri::command]
-fn mpv_command(cmd: Vec<String>) -> Result<(), String> {
-    let json = serde_json::json!({"command": cmd}).to_string();
-    mpv_send(&json)
-}
-
-#[tauri::command]
-fn mpv_set_property(name: String, value: String) -> Result<(), String> {
-    let json = serde_json::json!({"command": ["set_property", name, value]}).to_string();
-    mpv_send(&json)
-}
-
-#[tauri::command]
-fn mpv_get_property(name: String) -> Result<String, String> {
-    let json = serde_json::json!({"command": ["get_property", name]}).to_string();
-    mpv_send_and_read(&json)
-}
-
-#[tauri::command]
-fn mpv_stop() -> Result<(), String> {
-    let _ = mpv_send(r#"{"command":["quit"]}"#);
-    std::thread::sleep(std::time::Duration::from_millis(200));
-    let _ = std::fs::remove_file(MPV_SOCKET);
-    Ok(())
-} 
 fn sv(s: impl Into<String>) -> serde_json::Value {
     serde_json::Value::String(s.into())
 }
@@ -117,39 +49,19 @@ fn sv(s: impl Into<String>) -> serde_json::Value {
 // ===================== Dropbox API types =====================
 
 #[derive(Debug, Deserialize)]
-struct DropboxApiFile {
-    pub name: String,
-    pub path_lower: String,
-    #[serde(rename = ".tag")]
-    pub tag: String,
-    pub size: Option<u64>,
-    pub server_modified: Option<String>,
-}
-
+struct DropboxApiFile { pub name: String, pub path_lower: String, #[serde(rename = ".tag")] pub tag: String, pub size: Option<u64>, pub server_modified: Option<String> }
 #[derive(Debug, Serialize)]
-pub struct DropboxFile {
-    pub name: String,
-    pub path_lower: String,
-    pub tag: String,
-    pub size: Option<u64>,
-    pub server_modified: Option<String>,
-}
-
+pub struct DropboxFile { pub name: String, pub path_lower: String, pub tag: String, pub size: Option<u64>, pub server_modified: Option<String> }
 impl From<DropboxApiFile> for DropboxFile {
-    fn from(f: DropboxApiFile) -> Self {
-        Self { name: f.name, path_lower: f.path_lower, tag: f.tag, size: f.size, server_modified: f.server_modified }
-    }
+    fn from(f: DropboxApiFile) -> Self { Self { name: f.name, path_lower: f.path_lower, tag: f.tag, size: f.size, server_modified: f.server_modified } }
 }
-
 #[derive(Debug, Deserialize)]
 struct DropboxApiListResult { entries: Vec<DropboxApiFile>, cursor: Option<String>, has_more: bool }
 impl From<DropboxApiListResult> for DropboxListResult {
     fn from(r: DropboxApiListResult) -> Self { Self { entries: r.entries.into_iter().map(Into::into).collect(), cursor: r.cursor, has_more: r.has_more } }
 }
-
 #[derive(Debug, Serialize)]
 pub struct DropboxListResult { pub entries: Vec<DropboxFile>, pub cursor: Option<String>, pub has_more: bool }
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TemporaryLinkResult { pub link: String }
 
@@ -236,10 +148,8 @@ async fn start_oauth(app: tauri::AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 fn check_stored_token(app: tauri::AppHandle) -> Result<Option<String>, String> { Ok(load_stored_token(&app)) }
-
 #[tauri::command]
 fn clear_stored_token(app: tauri::AppHandle) -> Result<(), String> { let path = get_token_path(&app); std::fs::remove_file(path).ok(); Ok(()) }
-
 #[tauri::command]
 async fn dropbox_list_folder(access_token: String, path: String) -> Result<DropboxListResult, String> { dropbox::list_folder(&access_token, &path).await }
 #[tauri::command]
@@ -247,12 +157,8 @@ async fn dropbox_get_temporary_link(access_token: String, path: String) -> Resul
 #[tauri::command]
 async fn dropbox_search(access_token: String, query: String) -> Result<DropboxListResult, String> { dropbox::search(&access_token, &query).await }
 
-// App key is read from the DROPBOX_APP_KEY environment variable at build time.
-// Set it before building: export DROPBOX_APP_KEY=your_key_here
-// Get one at https://www.dropbox.com/developers/apps
 const DROPBOX_APP_KEY: &str = match option_env!("DROPBOX_APP_KEY") {
-    Some(val) => val,
-    None => "",
+    Some(val) => val, None => "",
 };
 
 pub fn run() {
@@ -265,17 +171,14 @@ pub fn run() {
         }).build())
         .setup(|app| {
             let handle = app.handle();
-            // Register global shortcuts for N (next) and B (previous)
-            let next = Shortcut::new(None, Code::KeyN);
-            let prev = Shortcut::new(None, Code::KeyB);
-            let _ = handle.global_shortcut().register(next);
-            let _ = handle.global_shortcut().register(prev);
+            let _ = handle.global_shortcut().register(Shortcut::new(None, Code::KeyN));
+            let _ = handle.global_shortcut().register(Shortcut::new(None, Code::KeyB));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             start_oauth, check_stored_token, clear_stored_token,
             dropbox_list_folder, dropbox_get_temporary_link, dropbox_search,
-            start_mpv, mpv_loadfile, mpv_command, mpv_set_property, mpv_get_property, mpv_stop,
+            play_video,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

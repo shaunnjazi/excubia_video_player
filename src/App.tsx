@@ -21,7 +21,6 @@ export default function App() {
     try {
       const { invoke } = await import('@tauri-apps/api/core')
       await invoke('clear_stored_token')
-      await invoke('mpv_stop').catch(() => {})
     } catch {}
   }
 
@@ -30,7 +29,7 @@ export default function App() {
       const { getTemporaryLink, listFolder } = await import('./lib/dropbox')
       const { invoke } = await import('@tauri-apps/api/core')
       const link = await getTemporaryLink(accessToken!, path)
-      await invoke('start_mpv', { url: link })
+      await invoke('play_video', { url: link })
       addToPlaylist({ path, name, added: Date.now() })
       setCurrentVideo({ path, name })
       // Auto-populate playlist with all videos in the same folder
@@ -49,12 +48,6 @@ export default function App() {
     }
   }, [accessToken])
 
-  const getNextVideoName = (): string | undefined => {
-    if (!currentVideo) return undefined
-    const next = nextVideo(currentVideo.path)
-    return next?.name
-  }
-
   const handlePlayNext = useCallback(async () => {
     if (!currentVideo) return
     const next = nextVideo(currentVideo.path)
@@ -72,27 +65,20 @@ export default function App() {
   }, [currentVideo, handlePlayVideo])
 
   const handleStop = useCallback(async () => {
-    try {
-      const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('mpv_stop').catch(() => {})
-    } catch {}
     setCurrentVideo(null)
   }, [])
 
-  // Listen for global shortcuts (N = next, B = prev)
+  // Global N/B shortcuts
   useEffect(() => {
     let unlisten: (() => void) | undefined
     import('@tauri-apps/api/event').then(({ listen }) => {
       listen<string>('shortcut', (event) => {
-        if (event.payload === 'KeyN' || event.payload === 'n') {
-          handlePlayNext()
-        } else if (event.payload === 'KeyB' || event.payload === 'b') {
-          handlePlayPrev()
-        }
+        if (event.payload === 'KeyN') handlePlayNext()
+        else if (event.payload === 'KeyB') handlePlayPrev()
       }).then(fn => { unlisten = fn })
     })
     return () => { unlisten?.() }
-  }, [])
+  }, [handlePlayNext, handlePlayPrev])
 
   if (!accessToken) return (
     <ToastProvider>
@@ -132,7 +118,6 @@ export default function App() {
               onStop={handleStop}
               onTogglePlaylist={() => setShowPlaylist(p => !p)}
               playlistCount={getPlaylist().length}
-              nextVideoName={getNextVideoName()}
             />
           ) : (
             <div style={{ padding: '8px 16px', borderTop: '1px solid #30363D', fontSize: '12px', color: '#6E7681', display: 'flex', alignItems: 'center', gap: '8px', background: '#161B22' }}>
