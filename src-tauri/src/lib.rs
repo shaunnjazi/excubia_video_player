@@ -34,31 +34,23 @@ fn mpv_send(json: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Send a command and read the JSON response. Retries on EAGAIN.
+/// Send a command and read the JSON response. Returns immediately on error.
 fn mpv_send_and_read(json: &str) -> Result<String, String> {
     let mut socket = UnixStream::connect(MPV_SOCKET)
         .map_err(|e| format!("Cannot connect to mpv: {}", e))?;
     socket.write_all(json.as_bytes())
         .map_err(|e| format!("Failed to send: {}", e))?;
-    // Give mpv a moment to respond, then try reading
-    std::thread::sleep(std::time::Duration::from_millis(100));
-    let mut buf = [0u8; 8192];
-    let mut total = 0usize;
-    socket.set_read_timeout(Some(std::time::Duration::from_millis(1500)))
+    // Short timeout — don't block the UI if mpv is unresponsive
+    socket.set_read_timeout(Some(std::time::Duration::from_millis(200)))
         .ok();
-    loop {
-        match socket.read(&mut buf[total..]) {
-            Ok(n) if n == 0 => break,
-            Ok(n) => { total += n; break; }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
-                || e.kind() == std::io::ErrorKind::Interrupted => {
-                std::thread::sleep(std::time::Duration::from_millis(20));
-                continue;
-            }
-            Err(e) => return Err(format!("Read error: {}", e)),
-        }
+    let mut buf = [0u8; 512];
+    match socket.read(&mut buf) {
+        Ok(n) => Ok(String::from_utf8_lossy(&buf[..n]).trim().to_string()),
+        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock
+            || e.kind() == std::io::ErrorKind::Interrupted => Ok(String::new()),
+        Err(ref e) if e.kind() == std::io::ErrorKind::TimedOut => Ok(String::new()),
+        Err(e) => Err(format!("Read error: {}", e)),
     }
-    Ok(String::from_utf8_lossy(&buf[..total]).trim().to_string())
 }
 
 #[tauri::command]
@@ -74,7 +66,7 @@ fn start_mpv(url: String) -> Result<(), String> {
     StdCommand::new(&mpv)
         .arg("--no-terminal")
         .arg("--keep-open=yes")
-        .arg("--no-osc")
+        .arg("--osd-level=1")
         .arg("--no-border")
         .arg("--title=Excubia Player")
         .arg("--player-operation-mode=pseudo-gui")
