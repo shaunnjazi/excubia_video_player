@@ -72,7 +72,6 @@ fn start_mpv() -> Result<(), String> {
     StdCommand::new(&mpv)
         .arg("--idle")
         .arg("--keep-open=yes")
-        .arg("--hwdec=yes")
         .arg(&socket_arg)
         .spawn()
         .map_err(|e| format!("Failed to start mpv: {}", e))?;

@@ -102,6 +102,7 @@ export default function Browser({ accessToken, view, onPlayVideo, onNavigate, cu
       onPlayVideo(entry.path_lower, entry.name)
     } catch (err: any) {
       setPlayError(err.toString())
+    } finally {
       setPlayingName(null)
     }
   }
