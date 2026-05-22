@@ -84,7 +84,39 @@ fn load_stored_token(app: &tauri::AppHandle) -> Option<String> {
     let path = get_token_path(app);
     let data = std::fs::read_to_string(path).ok()?;
     let parsed: serde_json::Value = serde_json::from_str(&data).ok()?;
-    parsed["access_token"].as_str().map(String::from)
+
+    // Check 7-day inactivity window
+    let saved_at = parsed["saved_at"].as_u64().unwrap_or(0);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+    let seven_days: u64 = 7 * 24 * 60 * 60;
+    if now > saved_at + seven_days {
+        return None; // Re-login required
+    }
+
+    // Try refreshing if we have a refresh token
+    if let Some(refresh_token) = parsed["refresh_token"].as_str() {
+        let client = reqwest::blocking::Client::new();
+        let params = [
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("client_id", DROPBOX_APP_KEY),
+        ];
+        if let Ok(resp) = client.post("https://api.dropboxapi.com/oauth2/token").form(&params).send() {
+            if resp.status().is_success() {
+                if let Ok(token_data) = resp.json::<serde_json::Value>() {
+                    if let Some(new_access) = token_data["access_token"].as_str() {
+                        // Save new token (preserve saved_at)
+                        save_tokens(app, new_access, Some(refresh_token));
+                        return Some(new_access.to_string());
+                    }
+                }
+            }
+        }
+        // Refresh failed but we're within 7 days — try the old token
+        parsed["access_token"].as_str().map(String::from)
+    } else {
+        parsed["access_token"].as_str().map(String::from)
+    }
 }
 
 fn save_tokens(app: &tauri::AppHandle, access: &str, refresh: Option<&str>) {
