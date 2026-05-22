@@ -58,51 +58,58 @@ fn start_mpv() -> Result<(), String> {
     // Clean up stale socket
     let _ = std::fs::remove_file(MPV_SOCKET);
 
-    // Check if mpv is already running by trying to connect
+    // Check if mpv is already running
     if UnixStream::connect(MPV_SOCKET).is_ok() {
-        return Ok(()); // Already running
+        return Ok(());
     }
 
+    // First verify mpv works at all
+    let version_out = StdCommand::new(&mpv).arg("--version").output()
+        .map_err(|e| format!("Cannot run mpv binary at '{}': {}", mpv, e))?;
+    if !version_out.status.success() {
+        let err = String::from_utf8_lossy(&version_out.stderr);
+        return Err(format!("mpv binary at '{}' failed: {}", mpv, err));
+    }
+
+    // Start mpv with minimal flags
     let mut child = StdCommand::new(&mpv)
-        .arg("--no-terminal")
-        .arg("--keep-open=yes")
         .arg("--idle")
-        .arg("--hwdec=yes")
         .arg("--input-ipc-server")
         .arg(MPV_SOCKET)
+        .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to start mpv: {} (tried: {})", e, mpv))?;
+        .map_err(|e| format!("Failed to start mpv: {}", e))?;
 
-    // Wait for socket to be ready with timeout
-    for _ in 0..100 {
+    // Wait for socket to be ready
+    for _ in 0..300 {
         if UnixStream::connect(MPV_SOCKET).is_ok() {
             return Ok(());
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 
-    // mpv might have crashed — capture stderr
-    match child.try_wait() {
-        Ok(Some(status)) => {
-            use std::io::Read;
-            let mut stderr = String::new();
-            if let Some(mut err_pipe) = child.stderr.take() {
-                let _ = err_pipe.read_to_string(&mut stderr);
-            }
-            return Err(format!(
-                "mpv exited with code {:?}.\nStderr: {}\nTry running '{} --idle' in terminal.",
-                status.code(), stderr.trim(), mpv
-            ));
-        }
-        Ok(None) => {
-            // mpv is running but socket didn't appear — try stderr
-            let out = child.wait_with_output().ok();
-            let stderr = out.as_ref().and_then(|o| String::from_utf8(o.stderr.clone()).ok()).unwrap_or_default();
-            return Err(format!("mpv started but IPC socket didn't appear. Stderr: {}", stderr));
-        }
-        Err(e) => return Err(format!("mpv process error: {}", e)),
+    // mpv didn't create socket — capture output
+    use std::io::Read;
+    let mut output = String::new();
+    let mut err_output = String::new();
+    if child.try_wait().ok().flatten().is_some() {
+        let _ = child.stdout.take().and_then(|mut p| p.read_to_string(&mut output).ok());
+        let _ = child.stderr.take().and_then(|mut p| p.read_to_string(&mut err_output).ok());
+    } else {
+        // mpv still running, kill it
+        let _ = child.kill();
+        let _ = child.wait();
     }
+
+    let details = if !output.trim().is_empty() { format!("\nstdout: {}", output.trim()) }
+    else if !err_output.trim().is_empty() { format!("\nstderr: {}", err_output.trim()) }
+    else { String::new() };
+
+    Err(format!(
+        "mpv failed to start. Socket not created after 15s.{}",
+        details
+    ))
 }
 
 #[tauri::command]
