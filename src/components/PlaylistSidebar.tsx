@@ -16,6 +16,8 @@ export default function PlaylistSidebar({ currentVideoPath, onPlayVideo, onClose
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
   const [width, setWidth] = useState(initialWidth)
+  const [sortBy, setSortBy] = useState<'added' | 'name'>('added')
+  const [showSort, setShowSort] = useState(false)
   const resizing = useRef(false)
 
   const refresh = useCallback(() => {
@@ -25,6 +27,16 @@ export default function PlaylistSidebar({ currentVideoPath, onPlayVideo, onClose
   }, [])
 
   useEffect(() => { refresh() }, [])
+
+  const smBtn: React.CSSProperties = {
+    background: 'none', border: 'none', color: '#8B949E', cursor: 'pointer',
+    padding: '4px', borderRadius: '4px', display: 'flex',
+  }
+
+  const sortedItems = [...items].sort((a, b) => {
+    if (sortBy === 'name') return a.name.localeCompare(b.name, undefined, { numeric: true })
+    return b.added - a.added
+  })
 
   const toggleShuffle = () => {
     const next = !shuffle
@@ -79,7 +91,22 @@ export default function PlaylistSidebar({ currentVideoPath, onPlayVideo, onClose
       <div style={{ padding: '12px', borderBottom: '1px solid #30363D' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
           <span style={{ fontSize: '13px', fontWeight: 600, color: '#E6EDF3' }}>Playlist ({items.length})</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#8B949E', cursor: 'pointer', padding: '2px' }}>
+          <div style={{ display: 'flex', gap: '2px' }}>
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setShowSort(s => !s)} title="Sort" style={smBtn}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="4" y1="6" x2="20" y2="6" /><line x1="8" y1="12" x2="20" y2="12" /><line x1="12" y1="18" x2="20" y2="18" />
+                </svg>
+              </button>
+              {showSort && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: '4px', background: '#161B22', border: '1px solid #30363D', borderRadius: '6px', zIndex: 50, minWidth: '120px', boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>
+                  <div style={{ padding: '6px 10px', fontSize: '10px', color: '#6E7681', textTransform: 'uppercase', fontWeight: 600 }}>Sort by</div>
+                  <button onClick={() => { setSortBy('added'); setShowSort(false) }} style={{ display: 'block', width: '100%', padding: '6px 10px', background: sortBy === 'added' ? '#2F81F722' : 'none', border: 'none', color: sortBy === 'added' ? '#2F81F7' : '#E6EDF3', cursor: 'pointer', fontSize: '12px', textAlign: 'left' }}>Date Added</button>
+                  <button onClick={() => { setSortBy('name'); setShowSort(false) }} style={{ display: 'block', width: '100%', padding: '6px 10px', background: sortBy === 'name' ? '#2F81F722' : 'none', border: 'none', color: sortBy === 'name' ? '#2F81F7' : '#E6EDF3', cursor: 'pointer', fontSize: '12px', textAlign: 'left' }}>Name</button>
+                </div>
+              )}
+            </div>
+            <button onClick={onClose} style={smBtn}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -116,6 +143,7 @@ export default function PlaylistSidebar({ currentVideoPath, onPlayVideo, onClose
           </button>
         </div>
       </div>
+      </div>
 
       {/* List */}
       <div style={{ flex: 1, overflow: 'auto', padding: '4px 0' }}>
@@ -123,7 +151,7 @@ export default function PlaylistSidebar({ currentVideoPath, onPlayVideo, onClose
           <div style={{ padding: '24px 16px', textAlign: 'center', color: '#6E7681', fontSize: '12px' }}>
             Playlist empty
           </div>
-        ) : items.map((item, i) => {
+        ) : sortedItems.map((item, i) => {
           const isCurrent = item.path === currentVideoPath
           return (
             <div key={item.path} draggable onDragStart={() => handleDragStart(i)}

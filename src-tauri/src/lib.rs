@@ -70,6 +70,12 @@ fn start_mpv(url: String) -> Result<(), String> {
         .arg(&url)
         .spawn()
         .map_err(|e| format!("Failed to launch mpv: {}", e))?;
+    // Bring mpv window to front
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let _ = StdCommand::new("osascript")
+        .arg("-e")
+        .arg(r#"tell application "mpv" to activate"#)
+        .output();
     Ok(())
 }
 
