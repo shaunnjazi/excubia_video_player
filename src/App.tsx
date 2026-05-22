@@ -1,27 +1,29 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import AuthGate from './components/AuthGate'
 import Sidebar from './components/Sidebar'
 import Browser from './components/Browser'
 
 export default function App() {
-  const [accessToken, setAccessToken] = useState<string | null>(() =>
-    localStorage.getItem('excubia_token')
-  )
+  const [accessToken, setAccessToken] = useState<string | null>(null)
   const [currentVideo, setCurrentVideo] = useState<{
     path: string
     name: string
   } | null>(null)
 
-  useEffect(() => {
-    if (accessToken) localStorage.setItem('excubia_token', accessToken)
-    else localStorage.removeItem('excubia_token')
-  }, [accessToken])
+  const handleLogout = async () => {
+    setAccessToken(null)
+    setCurrentVideo(null)
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('clear_stored_token')
+    } catch {}
+  }
 
   if (!accessToken) return <AuthGate onToken={setAccessToken} />
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: '#0D1117' }}>
-        <Sidebar onLogout={() => { setAccessToken(null); setCurrentVideo(null) }} />
+        <Sidebar onLogout={handleLogout} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         <Browser
           accessToken={accessToken}
