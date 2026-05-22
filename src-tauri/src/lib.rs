@@ -68,9 +68,9 @@ fn start_mpv() -> Result<(), String> {
         .arg("--keep-open=yes")
         .arg("--idle")
         .arg("--hwdec=yes")
-        .arg("--cache=yes")
         .arg("--input-ipc-server")
         .arg(MPV_SOCKET)
+        .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("Failed to start mpv: {} (tried: {})", e, mpv))?;
 
@@ -82,10 +82,18 @@ fn start_mpv() -> Result<(), String> {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 
-    // mpv might have crashed — check
+    // mpv might have crashed — capture stderr
     match child.try_wait() {
         Ok(Some(status)) => {
-            return Err(format!("mpv exited immediately with code {:?}. Try running '{} --idle' in terminal to debug.", status.code(), mpv));
+            use std::io::Read;
+            let mut stderr = String::new();
+            if let Some(mut err_pipe) = child.stderr.take() {
+                let _ = err_pipe.read_to_string(&mut stderr);
+            }
+            return Err(format!(
+                "mpv exited with code {:?}.\nStderr: {}\nTry running '{} --idle' in terminal.",
+                status.code(), stderr.trim(), mpv
+            ));
         }
         Ok(None) => {
             // mpv is running but socket didn't appear — try stderr
