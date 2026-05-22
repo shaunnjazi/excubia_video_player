@@ -107,6 +107,7 @@ export default function App() {
             currentPath={currentPath}
             onNavigate={(path) => { setCurrentPath(path); setView('browse') }}
             onPlayVideo={handlePlayVideo}
+            onAddToPlaylist={(path, name) => addToPlaylist({ path, name, added: Date.now() })}
           />
           {currentVideo ? (
             <NowPlaying

@@ -5,6 +5,7 @@ interface BrowserProps {
   accessToken: string
   view: 'browse' | 'recent'
   onPlayVideo: (path: string, name: string) => void
+  onAddToPlaylist?: (path: string, name: string) => void
   onNavigate: (path: string) => void
   currentPath: string
 }
@@ -43,7 +44,7 @@ function fmtSize(bytes?: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
 }
 
-export default function Browser({ accessToken, view, onPlayVideo, onNavigate, currentPath }: BrowserProps) {
+export default function Browser({ accessToken, view, onPlayVideo, onAddToPlaylist, onNavigate, currentPath }: BrowserProps) {
   const [entries, setEntries] = useState<DropboxEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -262,6 +263,15 @@ export default function Browser({ accessToken, view, onPlayVideo, onNavigate, cu
                 </div>
                 <div style={{ width: '100px', flexShrink: 0, fontSize: '11px', color: '#6E7681' }}>{fmtDate(entry.server_modified)}</div>
                 <div style={{ width: '70px', flexShrink: 0, fontSize: '11px', color: '#6E7681', textAlign: 'right' }}>{entry.tag === 'file' ? fmtSize(entry.size) : '—'}</div>
+                {onAddToPlaylist && isVid && (
+                  <button onClick={e => { e.stopPropagation(); onAddToPlaylist(entry.path_lower, entry.name) }}
+                    title="Add to playlist"
+                    style={{ background: 'none', border: 'none', color: '#6E7681', cursor: 'pointer', padding: '2px 6px', borderRadius: '4px', fontSize: '14px', fontWeight: 700, lineHeight: 1 }}
+                    onMouseEnter={e => e.currentTarget.style.color = '#2F81F7'}
+                    onMouseLeave={e => e.currentTarget.style.color = '#6E7681'}>
+                    +
+                  </button>
+                )}
               </button>
             )
           })
@@ -273,12 +283,24 @@ export default function Browser({ accessToken, view, onPlayVideo, onNavigate, cu
       </div>
 
       {/* Status bar */}
-      {view === 'browse' && !loading && !error && (
-        <div style={{ padding: '6px 16px', borderTop: '1px solid #30363D', fontSize: '11px', color: '#6E7681' }}>
-          {entries.filter(e => e.tag === 'folder').length} folders, {entries.filter(e => e.tag === 'file').length} files
-          {searchQuery.trim() && ` — searching: "${searchQuery}"`}
-        </div>
-      )}
+        {view === 'browse' && !loading && !error && entries.length > 0 && (
+          <div style={{ padding: '4px 12px', display: 'flex', alignItems: 'center', gap: '4px', borderBottom: '1px solid #21262D' }}>
+            <span style={{ flex: 1, fontSize: '11px', color: '#6E7681' }}>
+              {entries.filter(e => e.tag === 'folder').length} folders, {entries.filter(e => e.tag === 'file').length} files
+              {searchQuery.trim() && ` — "${searchQuery}"`}
+            </span>
+            {onAddToPlaylist && (
+              <button onClick={() => {
+                const videos = entries.filter(e => e.tag === 'file' && isVideoFile(e.name))
+                videos.forEach(v => onAddToPlaylist!(v.path_lower, v.name))
+              }}
+                style={{ padding: '3px 8px', background: 'transparent', border: '1px solid #30363D', borderRadius: '4px',
+                  color: '#8B949E', cursor: 'pointer', fontSize: '10px' }}>
+                Add all to playlist
+              </button>
+            )}
+          </div>
+        )}
       <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </div>
   )
