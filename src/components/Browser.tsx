@@ -92,6 +92,18 @@ export default function Browser({ accessToken, view, onPlayVideo, onAddToPlaylis
   }
 
   const handlePlay = async (entry: DropboxEntry) => {
+    if (isSubtitleFile(entry.name)) {
+      // Load subtitle into running mpv
+      const { invoke } = await import('@tauri-apps/api/core')
+      const { getTemporaryLink } = await import('../lib/dropbox')
+      try {
+        const link = await getTemporaryLink(accessToken, entry.path_lower)
+        await invoke('mpv_command', { cmd: ['sub-add', link, 'select'] })
+      } catch (err: any) {
+        setPlayError(err.toString())
+      }
+      return
+    }
     if (!isVideoFile(entry.name)) return
     setPlayError(null)
     setPlayingName(entry.name)
@@ -251,7 +263,7 @@ export default function Browser({ accessToken, view, onPlayVideo, onAddToPlaylis
                   animation: clickedFile === entry.path_lower ? 'flash 0.3s ease' : 'none',
                   border: 'none', borderBottom: '1px solid #21262D',
                   color: isSub ? '#8B949E' : '#E6EDF3',
-                  cursor: entry.tag === 'folder' || isVid ? 'pointer' : 'default',
+                  cursor: entry.tag === 'folder' || isVid || isSub ? 'pointer' : 'default',
                   fontSize: '13px', textAlign: 'left',
                 }}
                 onMouseEnter={e => { if (!isLoading) e.currentTarget.style.background = '#21262D' }}

@@ -6,8 +6,9 @@ use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::process::Command as StdCommand;
 use std::sync::mpsc;
-use std::sync::Mutex;
+use tauri::Emitter;
 use tauri::Manager;
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tiny_http;
 
 mod dropbox;
@@ -64,13 +65,7 @@ fn start_mpv(url: String) -> Result<(), String> {
     // Customize window: hide mpv's OSD/OSC, set title, minimal border
     let socket_arg = format!("--input-ipc-server={}", MPV_SOCKET);
     StdCommand::new(&mpv)
-        .arg("--no-terminal")
         .arg("--keep-open=yes")
-        .arg("--osd-level=1")
-        .arg("--no-border")
-        .arg("--title=Excubia Player")
-        .arg("--player-operation-mode=pseudo-gui")
-        .arg("--no-window-dragging")
         .arg(&socket_arg)
         .arg(&url)
         .spawn()
@@ -257,7 +252,20 @@ const DROPBOX_APP_KEY: &str = match option_env!("DROPBOX_APP_KEY") {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .setup(|_app| Ok(()))
+        .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(move |_app, shortcut, event| {
+            if event.state == ShortcutState::Pressed {
+                let _ = _app.emit("shortcut", shortcut.to_string());
+            }
+        }).build())
+        .setup(|app| {
+            let handle = app.handle();
+            // Register global shortcuts for N (next) and B (previous)
+            let next = Shortcut::new(None, Code::KeyN);
+            let prev = Shortcut::new(None, Code::KeyB);
+            let _ = handle.global_shortcut().register(next);
+            let _ = handle.global_shortcut().register(prev);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             start_oauth, check_stored_token, clear_stored_token,
             dropbox_list_folder, dropbox_get_temporary_link, dropbox_search,

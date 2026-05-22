@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import AuthGate from './components/AuthGate'
 import Sidebar from './components/Sidebar'
 import Browser from './components/Browser'
@@ -77,6 +77,21 @@ export default function App() {
       await invoke('mpv_stop').catch(() => {})
     } catch {}
     setCurrentVideo(null)
+  }, [])
+
+  // Listen for global shortcuts (N = next, B = prev)
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+    import('@tauri-apps/api/event').then(({ listen }) => {
+      listen<string>('shortcut', (event) => {
+        if (event.payload === 'KeyN' || event.payload === 'n') {
+          handlePlayNext()
+        } else if (event.payload === 'KeyB' || event.payload === 'b') {
+          handlePlayPrev()
+        }
+      }).then(fn => { unlisten = fn })
+    })
+    return () => { unlisten?.() }
   }, [])
 
   if (!accessToken) return (
