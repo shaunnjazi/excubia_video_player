@@ -72,10 +72,13 @@ fn start_mpv() -> Result<(), String> {
     }
 
     // Start mpv with minimal flags
+    // Note: mpv v0.41+ requires --flag=value syntax, not --flag value
+    let socket_arg = format!("--input-ipc-server={}", MPV_SOCKET);
     let mut child = StdCommand::new(&mpv)
         .arg("--idle")
-        .arg("--input-ipc-server")
-        .arg(MPV_SOCKET)
+        .arg("--keep-open=yes")
+        .arg("--hwdec=yes")
+        .arg(&socket_arg)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
