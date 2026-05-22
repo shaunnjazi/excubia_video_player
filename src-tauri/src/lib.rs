@@ -62,24 +62,23 @@ fn mpv_send_and_read(json: &str) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn start_mpv() -> Result<(), String> {
+fn start_mpv(url: String) -> Result<(), String> {
     let mpv = find_mpv().ok_or_else(|| "mpv not found. Install with: brew install mpv".to_string())?;
+    // Kill previous instance
+    let _ = mpv_send(r#"{"command":["quit"]}"#);
+    std::thread::sleep(std::time::Duration::from_millis(100));
     let _ = std::fs::remove_file(MPV_SOCKET);
-    if UnixStream::connect(MPV_SOCKET).is_ok() {
-        return Ok(());
-    }
+    // Launch mpv directly with the URL (no idle mode) + IPC socket for status
     let socket_arg = format!("--input-ipc-server={}", MPV_SOCKET);
     StdCommand::new(&mpv)
-        .arg("--idle")
+        .arg("--no-terminal")
         .arg("--keep-open=yes")
         .arg(&socket_arg)
+        .arg(&url)
         .spawn()
-        .map_err(|e| format!("Failed to start mpv: {}", e))?;
-    for _ in 0..100 {
-        if UnixStream::connect(MPV_SOCKET).is_ok() { return Ok(()); }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-    Err("mpv failed to start. Socket not created.".into())
+        .map_err(|e| format!("Failed to launch mpv: {}", e))?;
+    // Don't wait for socket — it'll be created when mpv starts playing
+    Ok(())
 }
 
 #[tauri::command]

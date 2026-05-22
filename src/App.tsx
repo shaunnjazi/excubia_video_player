@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import AuthGate from './components/AuthGate'
 import Sidebar from './components/Sidebar'
 import Browser from './components/Browser'
@@ -30,8 +30,7 @@ export default function App() {
     try {
       const link = await getTemporaryLink(accessToken!, path)
       const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('start_mpv').catch(() => {})
-      await invoke('mpv_loadfile', { url: link })
+      await invoke('start_mpv', { url: link })
       setCurrentVideo({ path, name })
     } catch (err: any) {
       console.error('Play failed:', err)
@@ -62,19 +61,9 @@ export default function App() {
   const handleStop = useCallback(async () => {
     try {
       const { invoke } = await import('@tauri-apps/api/core')
-      await invoke('mpv_loadfile', { url: '' }).catch(() => {})
+      await invoke('mpv_stop').catch(() => {})
     } catch {}
     setCurrentVideo(null)
-  }, [])
-
-  // Pre-start mpv on mount so first load is instant
-  useEffect(() => {
-    ;(async () => {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core')
-        await invoke('start_mpv')
-      } catch {}
-    })()
   }, [])
 
   if (!accessToken) return (
