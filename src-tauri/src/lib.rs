@@ -1,4 +1,7 @@
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::process::Command as StdCommand;
 use std::sync::mpsc;
 use tauri::Manager;
@@ -141,6 +144,21 @@ async fn start_oauth(app: tauri::AppHandle) -> Result<String, String> {
         return Err("Dropbox App Key not configured. Set the DROPBOX_APP_KEY environment variable or embed it in the code.".into());
     }
 
+    // Generate PKCE code verifier (128 chars random)
+    let code_verifier: String = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(128)
+        .map(char::from)
+        .collect();
+
+    // Compute code challenge = base64url(sha256(code_verifier))
+    let code_challenge = {
+        let mut hasher = Sha256::new();
+        hasher.update(code_verifier.as_bytes());
+        let hash = hasher.finalize();
+        URL_SAFE_NO_PAD.encode(hash)
+    };
+
     let (tx, rx) = mpsc::channel();
 
     // Start local HTTP server on a background thread
@@ -190,10 +208,10 @@ async fn start_oauth(app: tauri::AppHandle) -> Result<String, String> {
         }
     });
 
-    // Open browser to Dropbox OAuth URL
+    // Open browser to Dropbox OAuth URL (PKCE flow — no client secret needed)
     let auth_url = format!(
-        "https://www.dropbox.com/oauth2/authorize?client_id={}&response_type=code&redirect_uri={}&token_access_type=offline",
-        app_key, REDIRECT_URI
+        "https://www.dropbox.com/oauth2/authorize?client_id={}&response_type=code&redirect_uri={}&token_access_type=offline&code_challenge_method=S256&code_challenge={}",
+        app_key, REDIRECT_URI, code_challenge
     );
 
     // Try to open browser, fallback to printing URL
@@ -209,12 +227,13 @@ async fn start_oauth(app: tauri::AppHandle) -> Result<String, String> {
     let code: Result<String, String> = rx.recv().map_err(|_| "OAuth process interrupted".to_string())?;
     let code = code?;
 
-    // Exchange code for tokens
+    // Exchange code for tokens (PKCE — verifier replaces client_secret)
     let client = reqwest::Client::new();
     let params = [
         ("code", code.as_str()),
         ("grant_type", "authorization_code"),
         ("client_id", app_key),
+        ("code_verifier", &code_verifier),
         ("redirect_uri", REDIRECT_URI),
     ];
 

@@ -21,3 +21,6 @@ reqwest = { version = "0.12", features = ["json", "blocking"] }
 tokio = { version = "1", features = ["full"] }
 tiny_http = "0.12"
 url = "2"
+sha2 = "0.10"
+base64 = "0.22"
+rand = "0.8"
