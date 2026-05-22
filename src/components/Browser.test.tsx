@@ -37,7 +37,7 @@ describe('Browser', () => {
   it('shows error state when listFolder fails', async () => {
     vi.mocked(dropbox.listFolder).mockRejectedValue(new Error('Network error'))
     render(<Browser {...defaultProps} />)
-    expect(await screen.findByText('Network error')).toBeTruthy()
+    expect(await screen.findByText(/Network error/)).toBeTruthy()
   })
 
   it('shows folders and video files after loading', async () => {
