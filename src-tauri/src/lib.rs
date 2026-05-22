@@ -68,22 +68,37 @@ fn start_mpv(url: String) -> Result<(), String> {
     let _ = mpv_send(r#"{"command":["quit"]}"#);
     std::thread::sleep(std::time::Duration::from_millis(100));
     let _ = std::fs::remove_file(MPV_SOCKET);
-    // Launch mpv directly with the URL (no idle mode) + IPC socket for status
+    // Launch mpv with the URL + IPC socket for status
+    // Customize window: hide mpv's OSD/OSC, set title, minimal border
     let socket_arg = format!("--input-ipc-server={}", MPV_SOCKET);
     StdCommand::new(&mpv)
         .arg("--no-terminal")
         .arg("--keep-open=yes")
+        .arg("--osd-level=0")
+        .arg("--osd-on-seek=no")
+        .arg("--osd-duration=0")
+        .arg("--no-osc")
+        .arg("--no-input-default-bindings")
+        .arg("--no-border")
+        .arg("--title=Excubia Player")
+        .arg("--player-operation-mode=pseudo-gui")
+        .arg("--no-window-dragging")
         .arg(&socket_arg)
         .arg(&url)
         .spawn()
         .map_err(|e| format!("Failed to launch mpv: {}", e))?;
-    // Don't wait for socket — it'll be created when mpv starts playing
     Ok(())
 }
 
 #[tauri::command]
 fn mpv_loadfile(url: String) -> Result<(), String> {
     let json = serde_json::json!({"command": ["loadfile", url]}).to_string();
+    mpv_send(&json)
+}
+
+#[tauri::command]
+fn mpv_command(cmd: Vec<String>) -> Result<(), String> {
+    let json = serde_json::json!({"command": cmd}).to_string();
     mpv_send(&json)
 }
 
@@ -258,7 +273,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             start_oauth, check_stored_token, clear_stored_token,
             dropbox_list_folder, dropbox_get_temporary_link, dropbox_search,
-            start_mpv, mpv_loadfile, mpv_set_property, mpv_get_property, mpv_stop,
+            start_mpv, mpv_loadfile, mpv_command, mpv_set_property, mpv_get_property, mpv_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -55,6 +55,36 @@ export default function NowPlaying({ videoName, onNext, onPrev, onStop }: NowPla
     sendCmd('set', ['mute', muted ? 'no' : 'yes'])
   }
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      switch (e.key) {
+        case ' ':
+        case 'k':
+          e.preventDefault(); togglePlay(); break
+        case 'm':
+          toggleMute(); break
+        case 'ArrowLeft':
+          seekCmd(Math.max(0, time - 10)); break
+        case 'ArrowRight':
+          seekCmd(Math.min(duration, time + 10)); break
+        case 'ArrowUp':
+          changeVolume(Math.min(100, volume + 10)); break
+        case 'ArrowDown':
+          changeVolume(Math.max(0, volume - 10)); break
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [time, duration, volume])
+
+  const seekCmd = async (t: number) => {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('mpv_command', { cmd: ['seek', String(t), 'absolute'] })
+    } catch {}
+  }
+
   const fmtTime = (t: number) => {
     if (!isFinite(t)) return '0:00'
     const h = Math.floor(t / 3600); const m = Math.floor((t % 3600) / 60); const s = Math.floor(t % 60)
