@@ -89,9 +89,10 @@ excubia_player/
 ## Setup Steps (macOS)
 
 1. `brew install mpv` — mpv must be installed system-wide
-2. `npm install` — install React + Tauri deps
-3. `npm run tauri dev` — launch in dev mode
-4. Paste Dropbox access token (OAuth for MVP)
+2. `export DROPBOX_APP_KEY=your_key` — set your Dropbox App Key (get from Developer Console)
+3. `npm install` — install React + Tauri deps
+4. `npm run tauri dev` — launch in dev mode
+5. Click "Login with Dropbox" in the app
 
 ## Future Enhancements
 

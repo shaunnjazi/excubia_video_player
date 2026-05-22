@@ -267,7 +267,13 @@ async fn dropbox_get_temporary_link(access_token: String, path: String) -> Resul
 #[tauri::command]
 async fn dropbox_search(access_token: String, query: String) -> Result<DropboxListResult, String> { dropbox::search(&access_token, &query).await }
 
-const DROPBOX_APP_KEY: &str = "YOUR_DROPBOX_APP_KEY";
+// App key is read from the DROPBOX_APP_KEY environment variable at build time.
+// Set it before building: export DROPBOX_APP_KEY=your_key_here
+// Get one at https://www.dropbox.com/developers/apps
+const DROPBOX_APP_KEY: &str = match option_env!("DROPBOX_APP_KEY") {
+    Some(val) => val,
+    None => "",
+};
 
 pub fn run() {
     tauri::Builder::default()
