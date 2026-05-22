@@ -79,10 +79,12 @@ export default function App() {
         <Sidebar
           accessToken={accessToken}
           view={view}
+          playlistCount={getPlaylist().length}
           onViewChange={setView}
           currentPath={currentPath}
           onNavigate={(path) => { setCurrentPath(path); setView('browse') }}
           onPlayVideo={handlePlayVideo}
+          onTogglePlaylist={() => setShowPlaylist(p => !p)}
           onLogout={handleLogout}
         />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -99,10 +101,23 @@ export default function App() {
               onNext={handlePlayNext}
               onPrev={handlePlayPrev}
               onStop={handleStop}
+              onTogglePlaylist={() => setShowPlaylist(p => !p)}
+              playlistCount={getPlaylist().length}
             />
           ) : (
-            <div style={{ padding: '8px 16px', borderTop: '1px solid #30363D', fontSize: '12px', color: '#6E7681', textAlign: 'center', background: '#161B22' }}>
-              {getPlaylist().length > 0 ? `${getPlaylist().length} videos in playlist — click one to play` : 'Select a video to play'}
+            <div style={{ padding: '8px 16px', borderTop: '1px solid #30363D', fontSize: '12px', color: '#6E7681', display: 'flex', alignItems: 'center', gap: '8px', background: '#161B22' }}>
+              <span style={{ flex: 1, textAlign: 'center' }}>
+                {getPlaylist().length > 0 ? `${getPlaylist().length} videos in playlist` : 'Select a video to play'}
+              </span>
+              {getPlaylist().length > 0 && (
+                <button onClick={() => setShowPlaylist(p => !p)} title="Playlist"
+                  style={{ background: showPlaylist ? '#2F81F722' : 'none', border: 'none', color: '#8B949E', cursor: 'pointer', padding: '4px', borderRadius: '4px', display: 'flex' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />
+                    <line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
+                  </svg>
+                </button>
+              )}
             </div>
           )}
         </div>

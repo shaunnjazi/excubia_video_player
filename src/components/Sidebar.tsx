@@ -4,16 +4,18 @@ import { listFolder, DropboxEntry, isVideoFile } from '../lib/dropbox'
 interface SidebarProps {
   accessToken: string
   view: 'browse' | 'recent'
+  playlistCount: number
   onViewChange: (view: 'browse' | 'recent') => void
   onNavigate: (path: string) => void
   onPlayVideo: (path: string, name: string) => void
+  onTogglePlaylist: () => void
   currentPath: string
   onLogout: () => void
 }
 
 const ROOT_KEY = '__root__'
 
-export default function Sidebar({ accessToken, view, onViewChange, onNavigate, onPlayVideo, currentPath, onLogout }: SidebarProps) {
+export default function Sidebar({ accessToken, view, playlistCount, onViewChange, onNavigate, onPlayVideo, onTogglePlaylist, currentPath, onLogout }: SidebarProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set([ROOT_KEY]))
   const [children, setChildren] = useState<Record<string, DropboxEntry[]>>({})
   const [loading, setLoading] = useState<Record<string, boolean>>({})
@@ -155,6 +157,19 @@ export default function Sidebar({ accessToken, view, onViewChange, onNavigate, o
         {/* Show files in root */}
         {expanded.has(ROOT_KEY) && renderFiles(ROOT_KEY)}
       </div>
+
+      {/* Playlist */}
+      <button onClick={onTogglePlaylist}
+        style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 14px',
+          background: 'transparent', border: 'none', borderTop: '1px solid #30363D',
+          color: '#8B949E', cursor: 'pointer', fontSize: '12px', textAlign: 'left', width: '100%' }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />
+          <line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
+        </svg>
+        Playlist
+        {playlistCount > 0 && <span style={{ marginLeft: 'auto', fontSize: '10px', background: '#2F81F7', color: '#fff', borderRadius: '8px', padding: '1px 6px' }}>{playlistCount}</span>}
+      </button>
 
       {/* Logout */}
       <button onClick={onLogout}

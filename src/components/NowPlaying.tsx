@@ -5,9 +5,11 @@ interface NowPlayingProps {
   onNext?: () => void
   onPrev?: () => void
   onStop: () => void
+  onTogglePlaylist?: () => void
+  playlistCount?: number
 }
 
-export default function NowPlaying({ videoName, onNext, onPrev, onStop }: NowPlayingProps) {
+export default function NowPlaying({ videoName, onNext, onPrev, onStop, onTogglePlaylist, playlistCount }: NowPlayingProps) {
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [paused, setPaused] = useState(false)
@@ -150,6 +152,19 @@ export default function NowPlaying({ videoName, onNext, onPrev, onStop }: NowPla
             onChange={e => changeVolume(Number(e.target.value))}
             style={{ width: '60px', accentColor: '#2F81F7' }} />
         </div>
+
+        {/* Playlist */}
+        {onTogglePlaylist && (
+          <button onClick={onTogglePlaylist} title={`Playlist (${playlistCount || 0})`} style={{
+            ...btnStyle, position: 'relative',
+          }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />
+              <line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
+            </svg>
+            {playlistCount ? <span style={{ position: 'absolute', top: '-2px', right: '-2px', fontSize: '9px', background: '#2F81F7', color: '#fff', borderRadius: '50%', width: '14px', height: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{playlistCount}</span> : null}
+          </button>
+        )}
 
         {/* Stop */}
         <button onClick={onStop} title="Stop" style={btnStyle}>
