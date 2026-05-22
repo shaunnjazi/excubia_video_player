@@ -87,7 +87,15 @@ export default function App() {
   return (
     <ToastProvider>
       <div style={{ display: 'flex', height: '100vh', background: '#0D1117' }}>
-        <Sidebar view={view} onViewChange={setView} onLogout={handleLogout} />
+        <Sidebar
+          accessToken={accessToken}
+          view={view}
+          onViewChange={setView}
+          currentPath={currentPath}
+          onNavigate={(path) => { setCurrentPath(path); setView('browse') }}
+          onPlayVideo={handlePlayVideo}
+          onLogout={handleLogout}
+        />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <Browser
             accessToken={accessToken}

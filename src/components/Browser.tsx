@@ -96,14 +96,12 @@ export default function Browser({ accessToken, view, onPlayVideo, onNavigate, cu
     try {
       const link = await getTemporaryLink(accessToken, entry.path_lower)
       const { invoke } = await import('@tauri-apps/api/core')
-      // Start mpv if not running, then load file
-      await invoke('start_mpv').catch(() => {})  // safe to call if already running
+      await invoke('start_mpv')
       await invoke('mpv_loadfile', { url: link })
       addRecentVideo(entry.path_lower, entry.name)
       onPlayVideo(entry.path_lower, entry.name)
     } catch (err: any) {
       setPlayError(err.toString())
-    } finally {
       setPlayingName(null)
     }
   }

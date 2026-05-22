@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
-use std::process::{Child, Command as StdCommand};
+use std::process::{Command as StdCommand};
 use std::sync::mpsc;
 use std::sync::Mutex;
 use tauri::Manager;
@@ -14,58 +14,86 @@ mod dropbox;
 
 const MPV_SOCKET: &str = "/tmp/excubia-mpv.socket";
 
-struct MpvProcess(Mutex<Option<Child>>);
-
 fn find_mpv() -> Option<String> {
-    let paths = [
-        "/opt/homebrew/bin/mpv",
-        "/usr/local/bin/mpv",
-        "/usr/bin/mpv",
-    ];
+    let paths = ["/opt/homebrew/bin/mpv", "/usr/local/bin/mpv", "/usr/bin/mpv"];
     paths.iter().find(|p| std::path::Path::new(p).exists()).map(|s| s.to_string())
         .or_else(|| {
-            // Fallback: check PATH
-            StdCommand::new("mpv").arg("--version").output().ok().map(|_| "mpv".to_string())
+            // Fallback: try PATH
+            let output = StdCommand::new("which").arg("mpv").output().ok()?;
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() && std::path::Path::new(&path).exists() { Some(path) } else { None }
         })
 }
 
+fn send_mpv_command_timeout(json: &str, timeout_ms: u64) -> Result<String, String> {
+    let start = std::time::Instant::now();
+    loop {
+        match UnixStream::connect(MPV_SOCKET) {
+            Ok(mut socket) => {
+                socket.set_read_timeout(Some(std::time::Duration::from_millis(timeout_ms)))
+                    .map_err(|e| format!("Failed to set socket timeout: {}", e))?;
+                socket.write_all(json.as_bytes())
+                    .map_err(|e| format!("Failed to send command to mpv: {}", e))?;
+                let mut buf = [0u8; 4096];
+                let n = socket.read(&mut buf).map_err(|e| format!("Failed to read mpv response: {}", e))?;
+                return Ok(String::from_utf8_lossy(&buf[..n]).trim().to_string());
+            }
+            Err(_) if start.elapsed().as_millis() < 3000 => {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                continue;
+            }
+            Err(e) => return Err(format!("Cannot connect to mpv: {}. Ensure mpv is installed (brew install mpv) and the app has been restarted.", e)),
+        }
+    }
+}
+
 fn send_mpv_command(json: &str) -> Result<String, String> {
-    let mut socket = UnixStream::connect(MPV_SOCKET)
-        .map_err(|e| format!("Cannot connect to mpv: {}. Start mpv first.", e))?;
-    socket.write_all(json.as_bytes())
-        .map_err(|e| format!("Failed to send command to mpv: {}", e))?;
-    let mut buf = [0u8; 4096];
-    let n = socket.read(&mut buf).map_err(|e| format!("Failed to read mpv response: {}", e))?;
-    Ok(String::from_utf8_lossy(&buf[..n]).to_string())
+    send_mpv_command_timeout(json, 3000)
 }
 
 #[tauri::command]
 fn start_mpv() -> Result<(), String> {
-    let mpv = find_mpv().ok_or_else(|| {
-        "mpv not found. Install with: brew install mpv".to_string()
-    })?;
+    let mpv = find_mpv().ok_or_else(|| "mpv not found. Install with: brew install mpv".to_string())?;
 
-    // Kill existing mpv if running
+    // Clean up stale socket
     let _ = std::fs::remove_file(MPV_SOCKET);
 
-    let child = StdCommand::new(&mpv)
+    // Check if mpv is already running by trying to connect
+    if UnixStream::connect(MPV_SOCKET).is_ok() {
+        return Ok(()); // Already running
+    }
+
+    let mut child = StdCommand::new(&mpv)
         .arg("--no-terminal")
         .arg("--keep-open=yes")
         .arg("--idle")
+        .arg("--no-config")
         .arg("--input-ipc-server")
         .arg(MPV_SOCKET)
         .spawn()
-        .map_err(|e| format!("Failed to start mpv: {}", e))?;
+        .map_err(|e| format!("Failed to start mpv: {} (tried: {})", e, mpv))?;
 
-    // Wait for socket to be ready
-    for _ in 0..50 {
-        if std::path::Path::new(MPV_SOCKET).exists() {
-            break;
+    // Wait for socket to be ready with timeout
+    for _ in 0..100 {
+        if UnixStream::connect(MPV_SOCKET).is_ok() {
+            return Ok(());
         }
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
 
-    Ok(())
+    // mpv might have crashed — check
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            return Err(format!("mpv exited immediately with code {:?}. Try running '{} --idle' in terminal to debug.", status.code(), mpv));
+        }
+        Ok(None) => {
+            // mpv is running but socket didn't appear — try stderr
+            let out = child.wait_with_output().ok();
+            let stderr = out.as_ref().and_then(|o| String::from_utf8(o.stderr.clone()).ok()).unwrap_or_default();
+            return Err(format!("mpv started but IPC socket didn't appear. Stderr: {}", stderr));
+        }
+        Err(e) => return Err(format!("mpv process error: {}", e)),
+    }
 }
 
 #[tauri::command]
@@ -241,7 +269,6 @@ const DROPBOX_APP_KEY: &str = "YOUR_DROPBOX_APP_KEY";
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .manage(MpvProcess(Mutex::new(None)))
         .setup(|_app| Ok(()))
         .invoke_handler(tauri::generate_handler![
             start_oauth, check_stored_token, clear_stored_token,
