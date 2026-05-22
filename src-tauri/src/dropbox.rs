@@ -101,6 +101,7 @@ pub async fn search(
                 path_lower: meta["path_lower"].as_str().unwrap_or("").to_string(),
                 tag: if tag == "folder" { "folder".to_string() } else { "file".to_string() },
                 size: meta["size"].as_u64(),
+                server_modified: meta["server_modified"].as_str().map(String::from),
             })
         })
         .collect();

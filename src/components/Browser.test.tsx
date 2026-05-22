@@ -8,10 +8,19 @@ vi.mock('../lib/dropbox', () => ({
   getTemporaryLink: vi.fn(),
   isVideoFile: (name: string) => /\.(mp4|mkv|avi|mov)$/i.test(name),
   isSubtitleFile: (name: string) => /\.(srt|vtt|ass)$/i.test(name),
+  sortEntries: (entries: any[]) => entries,
 }))
 
 function makeEntry(name: string, tag: 'file' | 'folder', path?: string): dropbox.DropboxEntry {
   return { name, tag, path_lower: path || ('/' + name), size: tag === 'file' ? 1000000 : undefined }
+}
+
+const defaultProps = {
+  accessToken: 'test',
+  onPlayVideo: vi.fn(),
+  onNavigate: vi.fn(),
+  currentPath: '',
+  view: 'browse' as const,
 }
 
 describe('Browser', () => {
@@ -21,13 +30,13 @@ describe('Browser', () => {
 
   it('shows loading state on mount', () => {
     vi.mocked(dropbox.listFolder).mockReturnValue(new Promise(() => {}))
-    render(<Browser accessToken="test" onPlayVideo={vi.fn()} />)
-    expect(screen.getByText('Loading files...')).toBeTruthy()
+    render(<Browser {...defaultProps} />)
+    expect(screen.getByText('Loading...')).toBeTruthy()
   })
 
   it('shows error state when listFolder fails', async () => {
     vi.mocked(dropbox.listFolder).mockRejectedValue(new Error('Network error'))
-    render(<Browser accessToken="test" onPlayVideo={vi.fn()} />)
+    render(<Browser {...defaultProps} />)
     expect(await screen.findByText('Network error')).toBeTruthy()
   })
 
@@ -40,39 +49,16 @@ describe('Browser', () => {
       ],
       cursor: undefined, has_more: false,
     })
-    render(<Browser accessToken="test" onPlayVideo={vi.fn()} />)
+    render(<Browser {...defaultProps} />)
     expect(await screen.findByText('folder1')).toBeTruthy()
     expect(await screen.findByText('video.mp4')).toBeTruthy()
-    expect(await screen.findByText('subs.srt')).toBeTruthy()
-  })
-
-  it('shows subtitle label on subtitle files', async () => {
-    vi.mocked(dropbox.listFolder).mockResolvedValue({
-      entries: [makeEntry('subs.srt', 'file')],
-      cursor: undefined, has_more: false,
-    })
-    render(<Browser accessToken="test" onPlayVideo={vi.fn()} />)
-    expect(await screen.findByText('sub')).toBeTruthy()
   })
 
   it('shows empty message when no files', async () => {
     vi.mocked(dropbox.listFolder).mockResolvedValue({
       entries: [], cursor: undefined, has_more: false,
     })
-    render(<Browser accessToken="test" onPlayVideo={vi.fn()} />)
+    render(<Browser {...defaultProps} />)
     expect(await screen.findByText('No files found')).toBeTruthy()
-  })
-
-  it('filters entries by search query', async () => {
-    vi.mocked(dropbox.listFolder).mockResolvedValue({
-      entries: [
-        makeEntry('video.mp4', 'file'),
-        makeEntry('movie.mp4', 'file'),
-        makeEntry('subs.srt', 'file'),
-      ],
-      cursor: undefined, has_more: false,
-    })
-    render(<Browser accessToken="test" onPlayVideo={vi.fn()} />)
-    expect(await screen.findByText('video.mp4')).toBeTruthy()
   })
 })

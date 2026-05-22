@@ -17,6 +17,31 @@ export interface DropboxEntry {
   path_lower: string
   tag: 'file' | 'folder'
   size?: number
+  server_modified?: string
+}
+
+export interface ListResult {
+  entries: DropboxEntry[]
+  cursor?: string
+  has_more: boolean
+}
+
+export type SortField = 'name' | 'size' | 'modified'
+export type SortDir = 'asc' | 'desc'
+
+export function sortEntries(entries: DropboxEntry[], field: SortField, dir: SortDir): DropboxEntry[] {
+  const folders = entries.filter(e => e.tag === 'folder')
+  const files = entries.filter(e => e.tag === 'file')
+  const cmp = (a: DropboxEntry, b: DropboxEntry): number => {
+    let result = 0
+    if (field === 'name') result = a.name.localeCompare(b.name, undefined, { numeric: true })
+    else if (field === 'size') result = (a.size || 0) - (b.size || 0)
+    else if (field === 'modified') result = ((a.server_modified || '') < (b.server_modified || '') ? -1 : 1)
+    return dir === 'desc' ? -result : result
+  }
+  folders.sort(cmp)
+  files.sort(cmp)
+  return [...folders, ...files]
 }
 
 export interface ListResult {

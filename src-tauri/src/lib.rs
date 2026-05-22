@@ -16,6 +16,7 @@ struct DropboxApiFile {
     #[serde(rename = ".tag")]
     pub tag: String,
     pub size: Option<u64>,
+    pub server_modified: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -24,11 +25,15 @@ pub struct DropboxFile {
     pub path_lower: String,
     pub tag: String,
     pub size: Option<u64>,
+    pub server_modified: Option<String>,
 }
 
 impl From<DropboxApiFile> for DropboxFile {
     fn from(f: DropboxApiFile) -> Self {
-        Self { name: f.name, path_lower: f.path_lower, tag: f.tag, size: f.size }
+        Self {
+            name: f.name, path_lower: f.path_lower, tag: f.tag, size: f.size,
+            server_modified: f.server_modified,
+        }
     }
 }
 
@@ -302,12 +307,22 @@ async fn dropbox_search(
 
 #[tauri::command]
 fn launch_mpv(url: String) -> Result<(), String> {
-    StdCommand::new("mpv")
+    // Check common mpv install locations
+    let mpv_paths = [
+        "/opt/homebrew/bin/mpv",     // Apple Silicon (Homebrew)
+        "/usr/local/bin/mpv",        // Intel (Homebrew)
+        "/usr/bin/mpv",              // MacPorts / system
+    ];
+    let mpv = mpv_paths.iter().find(|p| std::path::Path::new(p).exists())
+        .copied()
+        .unwrap_or("mpv"); // fallback to PATH
+
+    StdCommand::new(mpv)
         .arg("--no-terminal")
         .arg("--keep-open=yes")
         .arg(&url)
         .spawn()
-        .map_err(|e| format!("Failed to launch mpv: {}. Is mpv installed? (brew install mpv)", e))?;
+        .map_err(|e| format!("Failed to launch mpv: {}. Tried paths: {:?}. Install with: brew install mpv", e, mpv_paths))?;
     Ok(())
 }
 

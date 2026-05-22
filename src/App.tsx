@@ -5,10 +5,9 @@ import Browser from './components/Browser'
 
 export default function App() {
   const [accessToken, setAccessToken] = useState<string | null>(null)
-  const [currentVideo, setCurrentVideo] = useState<{
-    path: string
-    name: string
-  } | null>(null)
+  const [currentVideo, setCurrentVideo] = useState<{ path: string; name: string } | null>(null)
+  const [view, setView] = useState<'browse' | 'recent'>('browse')
+  const [currentPath, setCurrentPath] = useState('')
 
   const handleLogout = async () => {
     setAccessToken(null)
@@ -23,19 +22,18 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: '#0D1117' }}>
-        <Sidebar onLogout={handleLogout} />
+      <Sidebar view={view} onViewChange={setView} onLogout={handleLogout} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         <Browser
           accessToken={accessToken}
+          view={view}
+          currentPath={currentPath}
+          onNavigate={setCurrentPath}
           onPlayVideo={(path, name) => setCurrentVideo({ path, name })}
         />
-        {/* Now Playing bar */}
         {currentVideo && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '12px',
-            padding: '8px 16px', background: '#161B22', borderTop: '1px solid #30363D',
-            flexShrink: 0,
-          }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 16px',
+            background: '#161B22', borderTop: '1px solid #30363D', flexShrink: 0 }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="#2F81F7">
               <polygon points="5 3 19 12 5 21 5 3" />
             </svg>
